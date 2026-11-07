@@ -273,7 +273,7 @@ private fun SettingsPageContent(
 
     // prefs 绑定到 XposedService：service 到达时切换到 RemotePreferences（跨进程提交到
     // LSPosed 数据库）；未就绪时保持 null，UI 禁止修改。
-    var prefs by remember { mutableStateOf(Prefs.remotePreferencesForUi(EtaApp.serviceInstance)) }
+    var prefs by remember { mutableStateOf<SharedPreferences?>(null) }
     val agentPrefs = remember { Prefs.localAgentPreferences() }
     var powerAssistantTarget by remember(prefs) {
         mutableStateOf(prefs?.let(Prefs::powerAssistantTarget) ?: enhancementHistory.powerTarget())
@@ -293,10 +293,20 @@ private fun SettingsPageContent(
     DisposableEffect(Unit) {
         val listener = object : EtaApp.ServiceStateListener {
             override fun onServiceStateChanged(service: io.github.libxposed.service.XposedService?) {
-                prefs = Prefs.remotePreferencesForUi(service)
-                prefs?.let { connected ->
+                val connected = Prefs.remotePreferencesForUi(service)
+                if (connected == null) {
+                    prefs = null
+                } else if (enhancementHistory.reconcileConnected(connected)) {
                     enhancementHistory.captureConnected(connected)
+                    prefs = connected
                     hasConnectedFramework = true
+                } else {
+                    prefs = null
+                    Toast.makeText(
+                        context.applicationContext,
+                        context.getString(R.string.settings_write_failed),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
                 Prefs.reconcileAgentPreferences(service)
                 coroutineScope.launch {
